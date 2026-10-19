@@ -72,7 +72,7 @@ phone and open it (allow installs from your file manager).
 
 ## GitHub Actions
 
-`.github/workflows/android-ci.yml` runs unit tests and builds the debug APK on push/PR/manual run.
+`.github/workflows/android-ci.yml` (uses the SDK preinstalled on ubuntu-latest) runs unit tests and builds the debug APK on push/PR/manual run.
 Download it from the run page -> Artifacts -> `nearaudio-debug-apk`. No secrets or signing keys needed.
 
 ## Testing with two phones

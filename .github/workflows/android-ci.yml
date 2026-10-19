@@ -20,8 +20,12 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # Installs the Android command-line tools and accepts the SDK licenses.
-      - uses: android-actions/setup-android@v3
+      # ubuntu-latest already ships the Android SDK (ANDROID_HOME) with cmdline-tools.
+      # android-actions/setup-android is not used: it fails on current runners
+      # ("Failed to find package 'tools'"). We only accept the licenses here;
+      # Gradle downloads platform 35 / build-tools itself.
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       # Gradle version matches gradle/wrapper/gradle-wrapper.properties (8.10.2).
       # This job does not depend on the wrapper JAR being committed.
