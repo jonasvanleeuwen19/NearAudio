@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.IOException
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 
 /** Accepts TCP connections while discovery is on. Connections get no trust until the user accepts. */
@@ -19,7 +20,9 @@ class IncomingListener(
     @Synchronized
     fun start(): Int {
         server?.let { return it.localPort }
-        val s = ServerSocket(0)
+        val s = ServerSocket()
+        s.receiveBufferSize = 64 * 1024 // must be set before bind; keeps buffered (delayed) audio small
+        s.bind(InetSocketAddress(0))
         server = s
         job = scope.launch(Dispatchers.IO) {
             try {

@@ -1,6 +1,7 @@
 package app.nearaudio
 
 import app.nearaudio.audio.AudioConfig
+import app.nearaudio.audio.AudioFormatId
 import app.nearaudio.audio.AudioSink
 import app.nearaudio.audio.PcmSource
 import app.nearaudio.discovery.Peer
@@ -75,7 +76,7 @@ class SessionIntegrationTest {
                 val sock = server.accept()
                 val conn = SocketConnection(sock)
                 try {
-                    ReceiverSession({ "Receiver" }, sink).handle(conn, { rx.codeSeen = it.code; accept }, {})
+                    ReceiverSession({ "Receiver" }, { sink }).handle(conn, { rx.codeSeen = it.code; accept }, {})
                 } catch (e: IOException) {
                     // sender went away; fine
                 } finally {
@@ -89,8 +90,8 @@ class SessionIntegrationTest {
         return Peer(id, "Receiver", "127.0.0.1", server.localPort) to rx
     }
 
-    private fun newSender(table: RecipientTable, connector: Connector = TcpConnector) =
-        SenderSession(scope, table, connector, { "Sender" })
+    private fun newSender(table: RecipientTable, connector: Connector = TcpConnector, fmt: AudioFormatId = AudioFormatId.PCM_48K_STEREO) =
+        SenderSession(scope, table, connector, { "Sender" }, format = { fmt })
 
     private fun waitFor(what: String, timeoutMs: Long = 8000, cond: () -> Boolean) {
         val end = System.currentTimeMillis() + timeoutMs
@@ -129,6 +130,21 @@ class SessionIntegrationTest {
         assertTrue(rx.sink.started)
         waitFor("source closed") { source.closed }
         assertFalse(sender.isSharing)
+    }
+
+    @Test fun streamsCompressedFormatForBluetooth() {
+        for (fmt in listOf(AudioFormatId.ADPCM_24K_STEREO, AudioFormatId.ADPCM_16K_MONO)) {
+            val table = RecipientTable()
+            val sender = newSender(table, fmt = fmt)
+            val (peer, rx) = startReceiver(accept = true)
+            connect(table, sender, peer)
+            waitFor("connected") { table.get(peer.id)!!.state == RecipientState.CONNECTED }
+            sender.startSharing(FakeSource())
+            waitFor("audio") { rx.sink.frames.size >= 5 }
+            for (f in rx.sink.frames.toList()) assertEquals(fmt.frameBytes, f.size)
+            sender.stopAll()
+            waitFor("sink stopped") { rx.sink.stopped }
+        }
     }
 
     @Test fun declinedSessionFailsWithoutPlayback() {
@@ -181,7 +197,7 @@ class SessionIntegrationTest {
         val t = Thread {
             val conn: Connection = SocketConnection(server.accept())
             try {
-                ReceiverSession({ "R" }, sink).handle(conn, { true }, {})
+                ReceiverSession({ "R" }, { sink }).handle(conn, { true }, {})
             } catch (e: IOException) {
                 failure = e
             } finally {

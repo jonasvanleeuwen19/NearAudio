@@ -13,7 +13,7 @@ import java.nio.ByteBuffer
 class ProtocolException(message: String) : IOException(message)
 
 object Protocol {
-    const val VERSION = 1
+    const val VERSION = 2
     const val MAX_PAYLOAD = 16 * 1024
     const val SESSION_ID_BYTES = 16
     const val COMMITMENT_BYTES = 32
@@ -39,7 +39,13 @@ enum class RejectReason(val code: Int) {
  * After Accept the sender streams Audio (AES-GCM) plus Ping keepalives, and ends with Stop.
  */
 sealed interface Message {
-    class Hello(val version: Int, val sessionId: ByteArray, val alias: String, val commitment: ByteArray) : Message
+    class Hello(
+        val version: Int,
+        val sessionId: ByteArray,
+        val alias: String,
+        val commitment: ByteArray,
+        val format: Int = 0,
+    ) : Message
     class HelloReply(val version: Int, val alias: String, val publicKey: ByteArray) : Message
     class KeyReveal(val publicKey: ByteArray) : Message
     class Accept(val tag: ByteArray) : Message
@@ -71,6 +77,7 @@ object Codec {
                 d.write(msg.sessionId)
                 writeAlias(d, msg.alias)
                 d.write(msg.commitment)
+                d.writeByte(msg.format)
                 T_HELLO
             }
             is Message.HelloReply -> {
@@ -136,7 +143,7 @@ object Codec {
                     val sid = readN(d, Protocol.SESSION_ID_BYTES)
                     val alias = readAlias(d)
                     val commitment = readN(d, Protocol.COMMITMENT_BYTES)
-                    Message.Hello(version, sid, alias, commitment)
+                    Message.Hello(version, sid, alias, commitment, d.readUnsignedByte())
                 }
                 T_REPLY -> Message.HelloReply(d.readUnsignedByte(), readAlias(d), readKey(d))
                 T_REVEAL -> Message.KeyReveal(readKey(d))

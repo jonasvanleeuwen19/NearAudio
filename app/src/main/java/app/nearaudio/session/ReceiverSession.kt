@@ -1,6 +1,7 @@
 package app.nearaudio.session
 
-import app.nearaudio.audio.AudioConfig
+import app.nearaudio.audio.AudioFormatId
+import app.nearaudio.audio.FrameCodecs
 import app.nearaudio.audio.AudioSink
 import app.nearaudio.transport.Codec
 import app.nearaudio.transport.Connection
@@ -20,7 +21,7 @@ class IncomingRequest(val alias: String, val code: String)
 /** Receiver side of one incoming session. Blocking; run on an IO thread. Android-free for testing. */
 class ReceiverSession(
     private val alias: () -> String,
-    private val sink: AudioSink,
+    private val sinkFor: (AudioFormatId) -> AudioSink,
 ) {
     companion object {
         const val HANDSHAKE_TIMEOUT_MS = 5000
@@ -40,6 +41,11 @@ class ReceiverSession(
             Codec.write(conn.output, Message.Reject(RejectReason.UNSUPPORTED_VERSION))
             throw ProtocolException("unsupported version ${hello.version}")
         }
+        val format = AudioFormatId.fromId(hello.format)
+        if (format == null) {
+            Codec.write(conn.output, Message.Reject(RejectReason.UNSUPPORTED_VERSION))
+            throw ProtocolException("unsupported audio format ${hello.format}")
+        }
         val pair = SessionCrypto.newKeyPair()
         val pub = pair.public.encoded
         Codec.write(conn.output, Message.HelloReply(Protocol.VERSION, alias().take(Protocol.MAX_ALIAS_CHARS), pub))
@@ -58,6 +64,8 @@ class ReceiverSession(
         onPlaying(false)
 
         val cipher = FrameCipher(keys.key, hello.sessionId)
+        val decoder = FrameCodecs.decoder(format)
+        val sink = sinkFor(format)
         val guard = ReplayGuard()
         var playing = false
         sink.start()
@@ -65,9 +73,10 @@ class ReceiverSession(
             while (true) {
                 when (val m = Codec.read(conn.input)) {
                     is Message.Audio -> {
-                        val pcm = cipher.open(m.counter, m.ciphertext)
+                        val plain = cipher.open(m.counter, m.ciphertext)
                         if (!guard.accept(m.counter)) continue
-                        if (pcm.isEmpty() || pcm.size > AudioConfig.FRAME_BYTES || pcm.size % 4 != 0) {
+                        val pcm = decoder.decode(plain)
+                        if (pcm.isEmpty() || pcm.size > format.frameBytes || pcm.size % (2 * format.channels) != 0) {
                             throw ProtocolException("bad audio frame size ${pcm.size}")
                         }
                         if (!playing) {

@@ -54,6 +54,7 @@ class SessionService : Service() {
     private val engine get() = (application as NearAudioApp).engine
     private var scope: CoroutineScope? = null
     private var sawActive = false
+    private val locks by lazy { PowerLocks(this) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -97,6 +98,7 @@ class SessionService : Service() {
     }
 
     private fun enter(type: Int) {
+        locks.acquire()
         ServiceCompat.startForeground(this, NOTIF_ID, buildNotification(engine.state.value), type)
     }
 
@@ -149,6 +151,7 @@ class SessionService : Service() {
     }
 
     override fun onDestroy() {
+        locks.release()
         scope?.cancel()
         super.onDestroy()
     }

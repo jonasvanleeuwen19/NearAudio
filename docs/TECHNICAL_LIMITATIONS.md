@@ -65,15 +65,28 @@ own audio output, and Android routes that to whatever is connected.
   checked against that change (not verified).
 * Discovery and listening stop when the app leaves the foreground unless a session is active.
 
-## Offline mode (Wi-Fi Direct)
+## Offline mode (Bluetooth LE)
 
-* Sharing phone: `WifiP2pManager.createGroup` + DNS-SD service advertisement + a small TCP announce
-  server on port 47321. Listener: service discovery, `connect` (PBC), then announces its TCP port to
-  the group owner (`transport/Announce.kt`). From there the normal handshake/approval/SAS/AES-GCM
-  session applies.
-* Android shows a Wi-Fi Direct invitation dialog on the group owner; this cannot be suppressed.
-* Wi-Fi must be switched on (not necessarily connected). While in a group, the sharing phone cannot
-  keep a normal Wi-Fi connection on most devices. Some devices/OEMs handle Wi-Fi Direct poorly.
-* Not tested on any device. Range and multi-listener throughput are unknown.
-* Permissions: NEARBY_WIFI_DEVICES (API 33+, declared neverForLocation) or ACCESS_FINE_LOCATION
-  (API <= 32, an Android requirement for Wi-Fi Direct discovery; location is not read).
+* Wi-Fi Direct was implemented in v0.2 and proved unusable in testing; it was removed.
+* Discovery: listener advertises service UUID + (scan response) manufacturer data `[ver][PSM][id:4][alias]`.
+  Sharer scans for the UUID. Classic Bluetooth discovery cannot identify app instances, and the classic
+  address cannot be derived from a BLE advertisement, so RFCOMM is not an option.
+* Transport: `createInsecureL2capChannel(psm)` (API 29+) = LE connection-oriented channel, no pairing;
+  security is our own handshake + SAS + AES-GCM. `BluetoothSocket` has no read timeout, so a timer closes
+  the socket on stalled reads.
+* Bandwidth: practical LE L2CAP throughput varies (roughly 100 kbit/s to over 1 Mbit/s depending on
+  phones, PHY and connection interval; Android gives no API to tune it for L2CAP). PCM (1.5 Mbit/s)
+  cannot fit, so IMA ADPCM is used (`audio/AudioFormats.kt`): 24 kHz stereo ~195 kbit/s or 16 kHz mono
+  ~66 kbit/s. Expect audible hiss/lower bandwidth compared with Wi-Fi. If the link is too slow the
+  per-recipient queue drops audio (dropouts).
+* Scanning is stopped when connecting (it competes for airtime). Bluetooth earbuds on the receiver share
+  the same radio and may reduce throughput.
+* **Not verified on any device.** Number of simultaneous recipients is limited by the Bluetooth controller.
+
+## Playback smoothness (v0.3)
+
+Findings from a two-phone test (stutter + delay): the old receiver started with ~60 ms of lead and the
+TCP send buffer could hold seconds of audio. Now: jitter buffer target 80/140/240 ms, rebuffer on
+underrun, skip-ahead when the queue exceeds twice the target, 32 KiB send / 64 KiB receive socket
+buffers, URGENT_AUDIO thread priority, partial wake lock and Wi-Fi low-latency lock during sessions.
+Not re-measured after these changes.

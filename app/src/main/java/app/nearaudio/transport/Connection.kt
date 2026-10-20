@@ -35,6 +35,7 @@ object TcpConnector : Connector {
     override fun connect(host: String, port: Int, timeoutMs: Int): Connection {
         val s = Socket()
         try {
+            s.sendBufferSize = 32 * 1024 // a big kernel send buffer would hide seconds of audio delay
             s.connect(InetSocketAddress(host, port), timeoutMs)
             s.tcpNoDelay = true
             return SocketConnection(s)

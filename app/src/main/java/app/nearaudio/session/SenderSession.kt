@@ -1,6 +1,8 @@
 package app.nearaudio.session
 
 import app.nearaudio.audio.AudioConfig
+import app.nearaudio.audio.AudioFormatId
+import app.nearaudio.audio.FrameCodecs
 import app.nearaudio.audio.PcmSource
 import app.nearaudio.discovery.Peer
 import app.nearaudio.transport.Codec
@@ -33,6 +35,7 @@ class SenderSession(
     private val table: RecipientTable,
     private val connector: Connector,
     private val alias: () -> String,
+    private val format: () -> AudioFormatId = { AudioFormatId.PCM_48K_STEREO },
     private val onSilence: (Boolean) -> Unit = {},
     private val onCaptureFailed: (String) -> Unit = {},
 ) {
@@ -130,9 +133,9 @@ class SenderSession(
             conn = connector.connect(peer.host, peer.port, CONNECT_TIMEOUT_MS)
             conns[id] = conn
             if (id in userClosed) throw PeerLeftException()
-            val (keys, sessionId) = handshake(conn, peer)
+            val (keys, sessionId, fmt) = handshake(conn, peer)
             conn.setReadTimeout(0)
-            val link = RecipientLink(conn, FrameCipher(keys.key, sessionId)) { table.receiving(id) }
+            val link = RecipientLink(conn, FrameCipher(keys.key, sessionId), FrameCodecs.encoder(fmt)) { table.receiving(id) }
             links[id] = link
             table.connected(id)
             link.run()
@@ -151,12 +154,15 @@ class SenderSession(
         }
     }
 
-    private fun handshake(conn: Connection, peer: Peer): Pair<app.nearaudio.transport.SessionKeys, ByteArray> {
+    private data class Handshake(val keys: app.nearaudio.transport.SessionKeys, val sessionId: ByteArray, val format: AudioFormatId)
+
+    private fun handshake(conn: Connection, peer: Peer): Handshake {
+        val fmt = format()
         val sessionId = ByteArray(Protocol.SESSION_ID_BYTES).also { random.nextBytes(it) }
         val pair = SessionCrypto.newKeyPair()
         val pub = pair.public.encoded
         conn.setReadTimeout(HANDSHAKE_TIMEOUT_MS)
-        Codec.write(conn.output, Message.Hello(Protocol.VERSION, sessionId, alias().take(Protocol.MAX_ALIAS_CHARS), SessionCrypto.sha256(pub)))
+        Codec.write(conn.output, Message.Hello(Protocol.VERSION, sessionId, alias().take(Protocol.MAX_ALIAS_CHARS), SessionCrypto.sha256(pub), fmt.id))
         val reply = when (val m = Codec.read(conn.input)) {
             is Message.HelloReply -> m
             is Message.Reject -> throw RejectedException(m.reason)
@@ -172,7 +178,7 @@ class SenderSession(
             is Message.Reject -> throw RejectedException(m.reason)
             else -> throw ProtocolException("unexpected message awaiting accept")
         }
-        return keys to sessionId
+        return Handshake(keys, sessionId, fmt)
     }
 
     private fun failureCode(e: IOException): String = when (e) {

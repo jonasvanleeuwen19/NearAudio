@@ -22,8 +22,9 @@ class ProtocolTest {
     private val commit = ByteArray(32) { (it + 1).toByte() }
 
     @Test fun helloRoundTrip() {
-        val r = roundTrip(Message.Hello(1, sid, "Fiets ♪", commit)) as Message.Hello
-        assertEquals(1, r.version)
+        val r = roundTrip(Message.Hello(2, sid, "Fiets ♪", commit, 1)) as Message.Hello
+        assertEquals(2, r.version)
+        assertEquals(1, r.format)
         assertArrayEquals(sid, r.sessionId)
         assertEquals("Fiets ♪", r.alias)
         assertArrayEquals(commit, r.commitment)

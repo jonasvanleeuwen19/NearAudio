@@ -24,8 +24,8 @@ class MainActivity : ComponentActivity() {
         // Sharing works without the notification being visible, so the result is not required.
         launchConsent()
     }
-    private val offlinePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) engine.startDiscovery() else engine.reportError(R.string.err_offline_permission)
+    private val btPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (result.values.all { it }) engine.startDiscovery() else engine.reportError(R.string.err_bt_permission)
     }
     private val consent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val data = r.data
@@ -52,7 +52,8 @@ class MainActivity : ComponentActivity() {
             onDismissError = engine::clearError,
             onMode = engine::setMode,
             onRole = engine::setRole,
-            onJoin = engine::joinHost,
+            onLatency = engine::setLatency,
+            onQuality = engine::setBtQuality,
         )
         setContent {
             NearAudioTheme { MainScreen(engine.state, actions) }
@@ -64,19 +65,23 @@ class MainActivity : ComponentActivity() {
         if (!isChangingConfigurations) engine.onUiBackgrounded()
     }
 
-    /** Offline mode needs NEARBY_WIFI_DEVICES (API 33+) or, on older Android, location (Wi-Fi Direct requirement). */
+    /** Bluetooth mode needs scan/advertise/connect (API 31+) or location (older; Android requires it for BLE scanning). */
     private fun toggleDiscovery() {
         val st = engine.state.value
         if (st.discovering) {
             engine.stopDiscovery()
             return
         }
-        if (st.mode != app.nearaudio.session.ShareMode.OFFLINE) {
+        if (st.mode != app.nearaudio.session.ShareMode.BLUETOOTH) {
             engine.startDiscovery()
             return
         }
-        val perm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION
-        if (granted(perm)) engine.startDiscovery() else offlinePermission.launch(perm)
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (needed.all { granted(it) }) engine.startDiscovery() else btPermissions.launch(needed)
     }
 
     /** RECORD_AUDIO (required by AudioRecord for playback capture) -> notifications (API 33+) -> system capture consent. */

@@ -2,12 +2,15 @@ package app.nearaudio.session
 
 import android.app.Application
 import android.media.projection.MediaProjection
+import android.os.Process
 import app.nearaudio.R
 import app.nearaudio.audio.AudioPlayer
 import app.nearaudio.audio.PlaybackCaptureSource
 import app.nearaudio.discovery.Peer
 import app.nearaudio.discovery.PeerDiscovery
-import app.nearaudio.discovery.WifiDirect
+import app.nearaudio.discovery.BluetoothDiscovery
+import app.nearaudio.audio.AudioFormatId
+import app.nearaudio.transport.Connector
 import app.nearaudio.transport.Codec
 import app.nearaudio.transport.Connection
 import app.nearaudio.transport.IncomingListener
@@ -45,7 +48,12 @@ class Engine(private val app: Application) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private val sender = SenderSession(
-        scope, table, TcpConnector, { _state.value.alias },
+        scope, table,
+        Connector { h, p, t ->
+            if (_state.value.mode == ShareMode.BLUETOOTH) bluetooth.connector.connect(h, p, t) else TcpConnector.connect(h, p, t)
+        },
+        { _state.value.alias },
+        format = { if (_state.value.mode == ShareMode.BLUETOOTH) _state.value.btQuality else AudioFormatId.PCM_48K_STEREO },
         onSilence = { silent -> _state.update { it.copy(captureSilent = silent) } },
         onCaptureFailed = { msg ->
             setError(R.string.err_capture_failed, msg)
@@ -66,15 +74,18 @@ class Engine(private val app: Application) {
         onError = { code -> setError(R.string.err_discovery, code.toString()) },
     )
 
-    private val wifiDirect = WifiDirect(
-        app, scope,
-        onAnnounce = { p ->
+    private val bluetooth = BluetoothDiscovery(
+        app, scope, ownId,
+        onFound = { p ->
             peers[p.id] = p
             table.peerSeen(p.id, p.alias)
         },
-        onHosts = { hs -> _state.update { it.copy(offlineHosts = hs) } },
-        onJoined = { _state.update { it.copy(offlineJoined = true) } },
-        onError = { code -> setError(R.string.err_offline, code) },
+        onLost = { id ->
+            table.peerLost(id)
+            if (table.get(id) == null) peers.remove(id)
+        },
+        onIncoming = ::onIncoming,
+        onError = { code -> setError(R.string.err_bluetooth, code) },
     )
 
     private val incomingActive = AtomicBoolean(false)
@@ -110,11 +121,21 @@ class Engine(private val app: Application) {
     private fun locked() = _state.value.discovering || _state.value.sharing || _state.value.receiving != null
 
     fun setMode(m: ShareMode) {
-        if (!locked()) _state.update { it.copy(mode = m) }
+        if (locked()) return
+        // Bluetooth adds delay and jitter of its own, so default to the most stable buffer there.
+        _state.update { it.copy(mode = m, latency = if (m == ShareMode.BLUETOOTH) LatencyMode.STABLE else LatencyMode.BALANCED) }
     }
 
     fun setRole(r: Role) {
         if (!locked()) _state.update { it.copy(role = r) }
+    }
+
+    fun setLatency(l: LatencyMode) {
+        if (_state.value.receiving == null) _state.update { it.copy(latency = l) }
+    }
+
+    fun setBtQuality(q: AudioFormatId) {
+        if (!_state.value.sharing) _state.update { it.copy(btQuality = q) }
     }
 
     fun startDiscovery() {
@@ -123,29 +144,27 @@ class Engine(private val app: Application) {
         try {
             when {
                 s.mode == ShareMode.WIFI -> discovery.start(s.alias, listener.start())
-                s.role == Role.SHARE -> wifiDirect.startHost(s.alias)
-                else -> wifiDirect.startClient(s.alias, ownId, listener.start())
+                s.role == Role.SHARE -> if (!bluetooth.startScanning()) { bluetooth.stop(); return }
+                else -> if (!bluetooth.startListening(s.alias)) { bluetooth.stop(); return }
             }
-            _state.update { it.copy(discovering = true, error = null, offlineHosts = emptyList(), offlineJoined = false) }
+            _state.update { it.copy(discovering = true, error = null) }
         } catch (e: IOException) {
-            discovery.stop(); wifiDirect.stop(); listener.stop()
+            discovery.stop(); bluetooth.stop(); listener.stop()
             setError(R.string.err_listen, e.message)
         } catch (e: RuntimeException) {
-            discovery.stop(); wifiDirect.stop(); listener.stop()
+            discovery.stop(); bluetooth.stop(); listener.stop()
             setError(R.string.err_discovery, e.message ?: "?")
         }
     }
 
-    fun joinHost(address: String) = wifiDirect.join(address)
-
     fun stopDiscovery() {
         if (!_state.value.discovering) return
         discovery.stop()
-        wifiDirect.stop()
+        bluetooth.stop()
         listener.stop()
         table.dropUnconnected()
         peers.keys.retainAll(table.snapshot().map { it.peerId }.toSet())
-        _state.update { it.copy(discovering = false, offlineHosts = emptyList(), offlineJoined = false) }
+        _state.update { it.copy(discovering = false) }
     }
 
     /** Called when the UI leaves the foreground: listening for strangers stops unless a session is running. */
@@ -170,6 +189,7 @@ class Engine(private val app: Application) {
             setError(R.string.err_already_receiving)
             return
         }
+        if (_state.value.mode == ShareMode.BLUETOOTH) bluetooth.stopScan() // scanning steals airtime from streaming
         for (id in table.selectedIds()) peers[id]?.let { sender.connect(it) } ?: table.failed(id, "unreachable")
     }
 
@@ -233,11 +253,13 @@ class Engine(private val app: Application) {
     }
 
     private fun runIncoming(conn: Connection) {
-        val session = ReceiverSession({ _state.value.alias }, AudioPlayer(app))
+        val session = ReceiverSession({ _state.value.alias }, { fmt -> AudioPlayer(app, fmt, _state.value.latency.frames) })
         incomingConn = conn
         userLeft = false
         var peerAlias = ""
         var code = ""
+        val oldPriority = Process.getThreadPriority(Process.myTid())
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO) // network reads must not be starved
         try {
             session.handle(
                 conn,
@@ -255,6 +277,7 @@ class Engine(private val app: Application) {
             // Failures before the user saw a prompt are just port noise; don't alarm the user.
             if (!userLeft && peerAlias.isNotEmpty()) setError(R.string.err_incoming_ended)
         } finally {
+            Process.setThreadPriority(oldPriority)
             runCatching { conn.close() }
             incomingConn = null
             _state.update { it.copy(receiving = null, incoming = null) }

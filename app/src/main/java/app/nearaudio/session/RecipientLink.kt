@@ -1,5 +1,6 @@
 package app.nearaudio.session
 
+import app.nearaudio.audio.FrameEncoder
 import app.nearaudio.transport.Codec
 import app.nearaudio.transport.Connection
 import app.nearaudio.transport.FrameCipher
@@ -25,6 +26,7 @@ class StalledException : IOException("recipient too slow")
 class RecipientLink(
     private val conn: Connection,
     private val cipher: FrameCipher,
+    private val encoder: FrameEncoder = FrameEncoder { it },
     queueFrames: Int = DEFAULT_QUEUE_FRAMES,
     private val onFirstFrameSent: () -> Unit = {},
 ) {
@@ -103,7 +105,7 @@ class RecipientLink(
                 timedWrite { Codec.write(conn.output, Message.Stop) }
                 return
             }
-            timedWrite { Codec.write(conn.output, Message.Audio(counter, cipher.seal(counter, frame))) }
+            timedWrite { Codec.write(conn.output, Message.Audio(counter, cipher.seal(counter, encoder.encode(frame)))) }
             counter++
             if (!firstSent) {
                 firstSent = true

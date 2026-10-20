@@ -47,7 +47,13 @@ class PlaybackCaptureSource(private val projection: MediaProjection) : PcmSource
         }
     }
 
+    private var prioritySet = false
+
     override fun readFrame(frame: ByteArray) {
+        if (!prioritySet) { // first call happens on the capture thread
+            prioritySet = true
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+        }
         var off = 0
         while (off < frame.size) {
             if (aborted) throw IOException("capture stopped")

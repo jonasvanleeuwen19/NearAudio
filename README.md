@@ -20,11 +20,19 @@ own speakers or Bluetooth earbuds.
 
 ## Two modes
 
-* **Wi-Fi network**: both phones on the same Wi-Fi/hotspot; discovery via mDNS.
-* **Offline (Wi-Fi Direct)** *(new, untested)*: no router or internet needed. The sharing phone starts
-  an offline hotspot (Wi-Fi Direct group); listeners choose Listen + Offline, tap Join and accept the
-  Android invitation. Audio then uses the same encrypted TCP session. Bluetooth cannot carry this
-  stream (see docs). Offline mode asks for the nearby-devices permission (location on Android 12 and older).
+* **Wi-Fi network**: both phones on the same Wi-Fi/hotspot; discovery via mDNS; 48 kHz stereo PCM
+  (works in practice, tested by the author on two phones).
+* **Bluetooth (offline, experimental)**: no Wi-Fi or internet. Listeners advertise over Bluetooth LE,
+  the sharer finds them and opens an LE L2CAP channel (no pairing). Audio is downsampled and
+  compressed with IMA ADPCM (Normal: 24 kHz stereo ~195 kbit/s, Low: 16 kHz mono ~66 kbit/s) to fit
+  Bluetooth bandwidth. **Untested on real hardware**: throughput depends heavily on the phones.
+  If it stutters, choose Low quality and the Stable buffer. (Wi-Fi Direct was tried in v0.2 and removed.)
+
+## Smooth playback
+
+Receiver jitter buffer (Low delay / Balanced / Stable), rebuffering on underrun, catch-up after bursts,
+small TCP buffers (no hidden seconds of delay), audio-priority threads, and CPU/Wi-Fi low-latency
+locks while a session runs.
 
 ## Features
 
@@ -55,10 +63,11 @@ own speakers or Bluetooth earbuds.
 | `INTERNET` | Local-network sockets only. No remote host is contacted. |
 | `RECORD_AUDIO` | Required by `AudioRecord` for playback capture on the sharing phone. Microphone is never used. Requested only when you start sharing. |
 | `FOREGROUND_SERVICE`, `..._MEDIA_PROJECTION`, `..._MEDIA_PLAYBACK` | Keep sharing/receiving alive with a visible notification. |
-| `NEARBY_WIFI_DEVICES` (API 33+) / `ACCESS_FINE_LOCATION` (API <=32), `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE` | Offline mode (Wi-Fi Direct) only; requested when you start it. Location is never read. |
+| `BLUETOOTH_SCAN`, `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT` (API 31+) / `ACCESS_FINE_LOCATION` (API <=30) | Bluetooth mode only; requested when you start it. Location is never read. |
+| `WAKE_LOCK` | Keep CPU/Wi-Fi awake during a session (avoids stutter with screen off). |
 | `POST_NOTIFICATIONS` (API 33+) | Show that notification. Optional; asked when you start sharing. |
 
-No Bluetooth, storage, contacts, accessibility or overlay permissions.
+No contacts, storage, contacts, accessibility or overlay permissions.
 
 ## Privacy
 
