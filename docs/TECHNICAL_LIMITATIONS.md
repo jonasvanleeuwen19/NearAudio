@@ -64,3 +64,16 @@ own audio output, and Android routes that to whatever is connected.
   runtime permission for apps targeting newer SDKs. This app targets API 35 and has not been
   checked against that change (not verified).
 * Discovery and listening stop when the app leaves the foreground unless a session is active.
+
+## Offline mode (Wi-Fi Direct)
+
+* Sharing phone: `WifiP2pManager.createGroup` + DNS-SD service advertisement + a small TCP announce
+  server on port 47321. Listener: service discovery, `connect` (PBC), then announces its TCP port to
+  the group owner (`transport/Announce.kt`). From there the normal handshake/approval/SAS/AES-GCM
+  session applies.
+* Android shows a Wi-Fi Direct invitation dialog on the group owner; this cannot be suppressed.
+* Wi-Fi must be switched on (not necessarily connected). While in a group, the sharing phone cannot
+  keep a normal Wi-Fi connection on most devices. Some devices/OEMs handle Wi-Fi Direct poorly.
+* Not tested on any device. Range and multi-listener throughput are unknown.
+* Permissions: NEARBY_WIFI_DEVICES (API 33+, declared neverForLocation) or ACCESS_FINE_LOCATION
+  (API <= 32, an Android requirement for Wi-Fi Direct discovery; location is not read).

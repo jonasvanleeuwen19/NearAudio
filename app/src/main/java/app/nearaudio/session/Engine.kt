@@ -7,6 +7,7 @@ import app.nearaudio.audio.AudioPlayer
 import app.nearaudio.audio.PlaybackCaptureSource
 import app.nearaudio.discovery.Peer
 import app.nearaudio.discovery.PeerDiscovery
+import app.nearaudio.discovery.WifiDirect
 import app.nearaudio.transport.Codec
 import app.nearaudio.transport.Connection
 import app.nearaudio.transport.IncomingListener
@@ -65,6 +66,17 @@ class Engine(private val app: Application) {
         onError = { code -> setError(R.string.err_discovery, code.toString()) },
     )
 
+    private val wifiDirect = WifiDirect(
+        app, scope,
+        onAnnounce = { p ->
+            peers[p.id] = p
+            table.peerSeen(p.id, p.alias)
+        },
+        onHosts = { hs -> _state.update { it.copy(offlineHosts = hs) } },
+        onJoined = { _state.update { it.copy(offlineJoined = true) } },
+        onError = { code -> setError(R.string.err_offline, code) },
+    )
+
     private val incomingActive = AtomicBoolean(false)
 
     @Volatile private var pendingDecision: CompletableFuture<Boolean>? = null
@@ -95,29 +107,45 @@ class Engine(private val app: Application) {
 
     // --- discovery ---
 
+    private fun locked() = _state.value.discovering || _state.value.sharing || _state.value.receiving != null
+
+    fun setMode(m: ShareMode) {
+        if (!locked()) _state.update { it.copy(mode = m) }
+    }
+
+    fun setRole(r: Role) {
+        if (!locked()) _state.update { it.copy(role = r) }
+    }
+
     fun startDiscovery() {
-        if (_state.value.discovering) return
+        val s = _state.value
+        if (s.discovering) return
         try {
-            val port = listener.start()
-            discovery.start(_state.value.alias, port)
-            _state.update { it.copy(discovering = true, error = null) }
+            when {
+                s.mode == ShareMode.WIFI -> discovery.start(s.alias, listener.start())
+                s.role == Role.SHARE -> wifiDirect.startHost(s.alias)
+                else -> wifiDirect.startClient(s.alias, ownId, listener.start())
+            }
+            _state.update { it.copy(discovering = true, error = null, offlineHosts = emptyList(), offlineJoined = false) }
         } catch (e: IOException) {
-            listener.stop()
+            discovery.stop(); wifiDirect.stop(); listener.stop()
             setError(R.string.err_listen, e.message)
         } catch (e: RuntimeException) {
-            listener.stop()
-            discovery.stop()
+            discovery.stop(); wifiDirect.stop(); listener.stop()
             setError(R.string.err_discovery, e.message ?: "?")
         }
     }
 
+    fun joinHost(address: String) = wifiDirect.join(address)
+
     fun stopDiscovery() {
         if (!_state.value.discovering) return
         discovery.stop()
+        wifiDirect.stop()
         listener.stop()
         table.dropUnconnected()
         peers.keys.retainAll(table.snapshot().map { it.peerId }.toSet())
-        _state.update { it.copy(discovering = false) }
+        _state.update { it.copy(discovering = false, offlineHosts = emptyList(), offlineJoined = false) }
     }
 
     /** Called when the UI leaves the foreground: listening for strangers stops unless a session is running. */

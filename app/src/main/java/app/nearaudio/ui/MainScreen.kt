@@ -26,13 +26,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.nearaudio.R
 import app.nearaudio.session.Recipient
+import app.nearaudio.session.Role
+import app.nearaudio.session.ShareMode
+import androidx.compose.material3.FilterChip
 import app.nearaudio.session.RecipientState
 import app.nearaudio.session.UiState
 import kotlinx.coroutines.flow.StateFlow
@@ -48,6 +50,9 @@ class Actions(
     val onAnswer: (Boolean) -> Unit,
     val onLeave: () -> Unit,
     val onDismissError: () -> Unit,
+    val onMode: (ShareMode) -> Unit,
+    val onRole: (Role) -> Unit,
+    val onJoin: (String) -> Unit,
 )
 
 @Composable
@@ -68,6 +73,10 @@ fun MainScreen(stateFlow: StateFlow<UiState>, actions: Actions) {
         )
     }
 
+    val offline = s.mode == ShareMode.OFFLINE
+    val sharer = s.role == Role.SHARE
+    val locked = s.discovering || s.sharing || rcv != null
+
     Scaffold { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -81,13 +90,31 @@ fun MainScreen(stateFlow: StateFlow<UiState>, actions: Actions) {
                     s.sharing -> stringResource(R.string.status_sharing, live)
                     rcv != null && rcv.playing -> stringResource(R.string.status_receiving, rcv.alias)
                     rcv != null -> stringResource(R.string.status_receiving_wait, rcv.alias)
+                    s.discovering && offline && sharer -> stringResource(R.string.status_hosting)
+                    s.discovering && offline && s.offlineJoined -> stringResource(R.string.status_joined)
+                    s.discovering && offline -> stringResource(R.string.status_searching)
                     s.discovering -> stringResource(R.string.status_discovering)
                     else -> stringResource(R.string.status_idle)
+                }
+                val hint = when {
+                    s.sharing || rcv != null -> null
+                    sharer && !s.discovering -> R.string.hint_share_idle
+                    sharer && connected > 0 -> R.string.hint_share_ready
+                    sharer && offline -> R.string.hint_share_hosting
+                    sharer -> R.string.hint_share_discovering
+                    !s.discovering -> R.string.hint_listen_idle
+                    offline && s.offlineJoined -> R.string.hint_listen_joined
+                    offline -> R.string.hint_listen_offline
+                    else -> R.string.hint_listen_wifi
                 }
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(status, style = MaterialTheme.typography.titleMedium)
-                        Text(stringResource(R.string.transport_info), style = MaterialTheme.typography.bodySmall)
+                        hint?.let { Text(stringResource(it), style = MaterialTheme.typography.bodyMedium) }
+                        Text(
+                            stringResource(if (offline) R.string.transport_info_offline else R.string.transport_info),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                 }
             }
@@ -123,6 +150,25 @@ fun MainScreen(stateFlow: StateFlow<UiState>, actions: Actions) {
             }
 
             item {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(stringResource(R.string.role_title), style = MaterialTheme.typography.labelLarge)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = sharer, enabled = !locked, onClick = { actions.onRole(Role.SHARE) },
+                            label = { Text(stringResource(R.string.role_share)) })
+                        FilterChip(selected = !sharer, enabled = !locked, onClick = { actions.onRole(Role.LISTEN) },
+                            label = { Text(stringResource(R.string.role_listen)) })
+                    }
+                    Text(stringResource(R.string.mode_title), style = MaterialTheme.typography.labelLarge)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = !offline, enabled = !locked, onClick = { actions.onMode(ShareMode.WIFI) },
+                            label = { Text(stringResource(R.string.mode_wifi)) })
+                        FilterChip(selected = offline, enabled = !locked, onClick = { actions.onMode(ShareMode.OFFLINE) },
+                            label = { Text(stringResource(R.string.mode_offline)) })
+                    }
+                }
+            }
+
+            item {
                 OutlinedTextField(
                     value = s.alias,
                     onValueChange = actions.onAlias,
@@ -134,55 +180,83 @@ fun MainScreen(stateFlow: StateFlow<UiState>, actions: Actions) {
             }
 
             item {
+                val label = when {
+                    s.discovering && offline && sharer -> R.string.discovery_stop_host
+                    s.discovering -> R.string.discovery_stop
+                    offline && sharer -> R.string.discovery_offline_host
+                    offline -> R.string.discovery_offline_search
+                    sharer -> R.string.discovery_start
+                    else -> R.string.discovery_listen
+                }
                 Button(
                     onClick = actions.onToggleDiscovery,
-                    enabled = !s.sharing && s.receiving == null,
+                    enabled = !s.sharing && rcv == null,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                ) {
-                    Text(stringResource(if (s.discovering) R.string.discovery_stop else R.string.discovery_start))
-                }
+                ) { Text(stringResource(label)) }
             }
 
-            item { Text(stringResource(R.string.peers_title), style = MaterialTheme.typography.titleMedium) }
+            if (sharer) {
+                item { Text(stringResource(R.string.peers_title), style = MaterialTheme.typography.titleMedium) }
 
-            if (s.peers.isEmpty()) {
-                item {
-                    Text(
-                        stringResource(if (s.discovering) R.string.peers_empty else R.string.peers_hint_off),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            } else {
-                items(s.peers, key = { it.peerId }) { r ->
-                    PeerRow(r, s.sharing, { actions.onToggleSelect(r.peerId) }, { actions.onDisconnect(r.peerId) })
-                }
-            }
-
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = actions.onConnect,
-                        enabled = selected > 0 && s.receiving == null,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    ) { Text(stringResource(R.string.connect_selected, selected)) }
-
-                    if (s.sharing) {
-                        Button(onClick = actions.onStopSharing, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                            Text(stringResource(R.string.stop_sharing))
-                        }
-                    } else {
-                        Button(
-                            onClick = actions.onStartSharing,
-                            enabled = connected > 0 && s.receiving == null,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        ) { Text(stringResource(R.string.start_sharing)) }
+                if (s.peers.isEmpty()) {
+                    item {
+                        Text(
+                            stringResource(
+                                when {
+                                    !s.discovering -> R.string.peers_hint_off
+                                    offline -> R.string.peers_empty_offline
+                                    else -> R.string.peers_empty
+                                },
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
-                    Text(stringResource(R.string.max_recipients_note, s.maxRecipients), style = MaterialTheme.typography.bodySmall)
+                } else {
+                    items(s.peers, key = { it.peerId }) { r ->
+                        PeerRow(r, s.sharing, { actions.onToggleSelect(r.peerId) }, { actions.onDisconnect(r.peerId) })
+                    }
+                }
+
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = actions.onConnect,
+                            enabled = selected > 0 && rcv == null,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        ) { Text(stringResource(R.string.connect_selected, selected)) }
+
+                        if (s.sharing) {
+                            Button(onClick = actions.onStopSharing, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                Text(stringResource(R.string.stop_sharing))
+                            }
+                        } else {
+                            Button(
+                                onClick = actions.onStartSharing,
+                                enabled = connected > 0 && rcv == null,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            ) { Text(stringResource(R.string.start_sharing)) }
+                        }
+                        Text(stringResource(R.string.max_recipients_note, s.maxRecipients), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            } else if (offline && s.discovering && rcv == null) {
+                item { Text(stringResource(R.string.hosts_title), style = MaterialTheme.typography.titleMedium) }
+                if (s.offlineHosts.isEmpty()) {
+                    item { Text(stringResource(R.string.hosts_empty), style = MaterialTheme.typography.bodyMedium) }
+                } else {
+                    items(s.offlineHosts, key = { it.address }) { h ->
+                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(h.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                            Button(onClick = { actions.onJoin(h.address) }, enabled = !s.offlineJoined,
+                                modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.join)) }
+                        }
+                    }
                 }
             }
 
             item { Text(stringResource(R.string.limits_info), style = MaterialTheme.typography.bodySmall) }
             item { Text(stringResource(R.string.permission_info), style = MaterialTheme.typography.bodySmall) }
+            if (offline) item { Text(stringResource(R.string.permission_info_offline), style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
@@ -201,7 +275,7 @@ private fun PeerRow(r: Recipient, sharing: Boolean, onToggle: () -> Unit, onDisc
             .toggleable(
                 value = r.state == RecipientState.SELECTED,
                 enabled = selectable && !sharing,
-                role = Role.Checkbox,
+                role = androidx.compose.ui.semantics.Role.Checkbox,
                 onValueChange = { onToggle() },
             )
             .semantics(mergeDescendants = true) { contentDescription = "$name, $stateText" },

@@ -18,6 +18,14 @@ own speakers or Bluetooth earbuds.
 * Each receiver explicitly accepts a session after comparing a 6-digit verification code, then plays
   through its normal Android audio output (incl. connected Bluetooth earbuds).
 
+## Two modes
+
+* **Wi-Fi network**: both phones on the same Wi-Fi/hotspot; discovery via mDNS.
+* **Offline (Wi-Fi Direct)** *(new, untested)*: no router or internet needed. The sharing phone starts
+  an offline hotspot (Wi-Fi Direct group); listeners choose Listen + Offline, tap Join and accept the
+  Android invitation. Audio then uses the same encrypted TCP session. Bluetooth cannot carry this
+  stream (see docs). Offline mode asks for the nearby-devices permission (location on Android 12 and older).
+
 ## Features
 
 * Discover nearby NearAudio phones (start/stop on demand), duplicate-name safe list.
@@ -47,9 +55,10 @@ own speakers or Bluetooth earbuds.
 | `INTERNET` | Local-network sockets only. No remote host is contacted. |
 | `RECORD_AUDIO` | Required by `AudioRecord` for playback capture on the sharing phone. Microphone is never used. Requested only when you start sharing. |
 | `FOREGROUND_SERVICE`, `..._MEDIA_PROJECTION`, `..._MEDIA_PLAYBACK` | Keep sharing/receiving alive with a visible notification. |
+| `NEARBY_WIFI_DEVICES` (API 33+) / `ACCESS_FINE_LOCATION` (API <=32), `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE` | Offline mode (Wi-Fi Direct) only; requested when you start it. Location is never read. |
 | `POST_NOTIFICATIONS` (API 33+) | Show that notification. Optional; asked when you start sharing. |
 
-No Bluetooth, location, storage, contacts, accessibility or overlay permissions.
+No Bluetooth, storage, contacts, accessibility or overlay permissions.
 
 ## Privacy
 

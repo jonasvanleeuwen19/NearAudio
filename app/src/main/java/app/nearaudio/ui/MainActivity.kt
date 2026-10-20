@@ -24,6 +24,9 @@ class MainActivity : ComponentActivity() {
         // Sharing works without the notification being visible, so the result is not required.
         launchConsent()
     }
+    private val offlinePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) engine.startDiscovery() else engine.reportError(R.string.err_offline_permission)
+    }
     private val consent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val data = r.data
         if (r.resultCode == RESULT_OK && data != null) {
@@ -38,7 +41,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val actions = Actions(
             onAlias = engine::setAlias,
-            onToggleDiscovery = { if (engine.state.value.discovering) engine.stopDiscovery() else engine.startDiscovery() },
+            onToggleDiscovery = ::toggleDiscovery,
             onToggleSelect = engine::toggleSelect,
             onConnect = engine::connectSelected,
             onDisconnect = engine::disconnect,
@@ -47,6 +50,9 @@ class MainActivity : ComponentActivity() {
             onAnswer = engine::answerIncoming,
             onLeave = engine::leaveIncoming,
             onDismissError = engine::clearError,
+            onMode = engine::setMode,
+            onRole = engine::setRole,
+            onJoin = engine::joinHost,
         )
         setContent {
             NearAudioTheme { MainScreen(engine.state, actions) }
@@ -56,6 +62,21 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         if (!isChangingConfigurations) engine.onUiBackgrounded()
+    }
+
+    /** Offline mode needs NEARBY_WIFI_DEVICES (API 33+) or, on older Android, location (Wi-Fi Direct requirement). */
+    private fun toggleDiscovery() {
+        val st = engine.state.value
+        if (st.discovering) {
+            engine.stopDiscovery()
+            return
+        }
+        if (st.mode != app.nearaudio.session.ShareMode.OFFLINE) {
+            engine.startDiscovery()
+            return
+        }
+        val perm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.NEARBY_WIFI_DEVICES else Manifest.permission.ACCESS_FINE_LOCATION
+        if (granted(perm)) engine.startDiscovery() else offlinePermission.launch(perm)
     }
 
     /** RECORD_AUDIO (required by AudioRecord for playback capture) -> notifications (API 33+) -> system capture consent. */
