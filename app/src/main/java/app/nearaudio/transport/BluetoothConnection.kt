@@ -69,6 +69,8 @@ class BluetoothConnection(private val socket: BluetoothSocket) : Connection {
         timeoutMs = ms
     }
 
+    override val slowLink: Boolean get() = true
+
     override fun close() = socket.close()
 }
 

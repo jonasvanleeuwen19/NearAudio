@@ -29,8 +29,8 @@ class AdpcmTest {
 
     @Test fun sizesMatchDocumentedBitrates() {
         val pcm = sineFrame(0, 440.0)
-        assertEquals(488, FrameCodecs.encoder(AudioFormatId.ADPCM_24K_STEREO).encode(pcm).size)
-        assertEquals(164, FrameCodecs.encoder(AudioFormatId.ADPCM_16K_MONO).encode(pcm).size)
+        assertEquals(488, FrameCodecs.encoder(AudioFormatId.ADPCM_24K_STEREO).encode(pcm).single().size)
+        assertEquals(164, FrameCodecs.encoder(AudioFormatId.ADPCM_16K_MONO).encode(pcm).single().size)
         assertEquals(1920, AudioFormatId.ADPCM_24K_STEREO.frameBytes)
         assertEquals(640, AudioFormatId.ADPCM_16K_MONO.frameBytes)
     }
@@ -42,7 +42,7 @@ class AdpcmTest {
             var err = 0.0
             for (f in 0 until 20) {
                 val pcm = sineFrame(f * 960, 440.0)
-                val dec = FrameCodecs.decoder(fmt).decode(enc.encode(pcm)) // fresh decoder: frames are self-contained
+                val dec = FrameCodecs.decoder(fmt).decode(enc.encode(pcm).single()).single() // fresh decoder: frames are self-contained
                 assertEquals(fmt.frameBytes, dec.size)
                 if (f < 2) continue // encoder warm-up
                 val d = ByteBuffer.wrap(dec).order(ByteOrder.LITTLE_ENDIAN)
@@ -70,6 +70,6 @@ class AdpcmTest {
 
     @Test fun passthroughForPcm() {
         val pcm = sineFrame(0, 100.0)
-        assertTrue(FrameCodecs.encoder(AudioFormatId.PCM_48K_STEREO).encode(pcm) === pcm)
+        assertTrue(FrameCodecs.encoder(AudioFormatId.PCM_48K_STEREO).encode(pcm).single() === pcm)
     }
 }

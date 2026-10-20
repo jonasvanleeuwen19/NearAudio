@@ -5,36 +5,64 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Wire audio formats. The capture side always produces 48 kHz stereo PCM; slower links (Bluetooth)
- * downsample and compress with IMA ADPCM (4 bits/sample, no codec latency, each frame carries its
- * own predictor state so a dropped frame cannot corrupt later ones).
+ * Wire audio formats. Capture always produces 48 kHz stereo PCM; slow links (Bluetooth) compress:
+ * AAC-LC via the platform MediaCodec (good quality at 64-96 kbit/s, mandatory on all Android devices)
+ * or IMA ADPCM (4 bits/sample, no codec latency, frames are self-contained) as the light fallback.
  */
-enum class AudioFormatId(val id: Int, val sampleRate: Int, val channels: Int, val factor: Int, val adpcm: Boolean) {
-    PCM_48K_STEREO(0, 48_000, 2, 1, false), // ~1.5 Mbit/s
-    ADPCM_24K_STEREO(1, 24_000, 2, 2, true), // ~195 kbit/s
-    ADPCM_16K_MONO(2, 16_000, 1, 3, true); // ~66 kbit/s
+enum class AudioFormatId(
+    val id: Int,
+    val sampleRate: Int,
+    val channels: Int,
+    val factor: Int,
+    val kind: Kind,
+    val bitrate: Int = 0,
+) {
+    PCM_48K_STEREO(0, 48_000, 2, 1, Kind.PCM), // ~1.5 Mbit/s
+    ADPCM_24K_STEREO(1, 24_000, 2, 2, Kind.ADPCM), // ~195 kbit/s
+    ADPCM_16K_MONO(2, 16_000, 1, 3, Kind.ADPCM), // ~66 kbit/s
+    AAC_STEREO_64(3, 48_000, 2, 1, Kind.AAC, 64_000),
+    AAC_STEREO_96(4, 48_000, 2, 1, Kind.AAC, 96_000),
+    PCM_48K_MONO(5, 48_000, 1, 1, Kind.PCM); // local line-in only, never negotiated
 
-    /** Bytes of decoded PCM per 20 ms frame. */
+    enum class Kind { PCM, ADPCM, AAC }
+
+    /** Bytes of decoded PCM per 20 ms. */
     val frameBytes: Int get() = sampleRate * AudioConfig.FRAME_MS / 1000 * channels * 2
 
+    /** Upper bound for one decoded chunk (an AAC frame is 1024 samples = 21.3 ms). */
+    val maxPcmBytes: Int get() = if (kind == Kind.AAC) 1024 * channels * 2 * 2 else frameBytes
+
     companion object {
-        fun fromId(id: Int): AudioFormatId? = entries.firstOrNull { it.id == id }
+        fun fromId(id: Int): AudioFormatId? = entries.firstOrNull { it.id == id && it != PCM_48K_MONO }
     }
 }
 
-fun interface FrameEncoder {
-    /** [pcm48] is one 48 kHz stereo 16-bit LE frame. */
-    fun encode(pcm48: ByteArray): ByteArray
+interface FrameEncoder {
+    /** [pcm48] is one 48 kHz stereo 16-bit LE frame (20 ms). Returns 0..n wire frames (codecs may buffer). */
+    fun encode(pcm48: ByteArray): List<ByteArray>
+
+    fun close() {}
 }
 
-fun interface FrameDecoder {
-    /** Returns PCM in the format's native rate/channels. Throws [IOException] on malformed data. */
-    fun decode(data: ByteArray): ByteArray
+interface FrameDecoder {
+    /** Returns 0..n PCM chunks in the format's native rate/channels. Throws [IOException] on malformed data. */
+    fun decode(data: ByteArray): List<ByteArray>
+
+    fun close() {}
 }
 
 object FrameCodecs {
-    fun encoder(f: AudioFormatId): FrameEncoder = if (f.adpcm) AdpcmEncoder(f) else FrameEncoder { it }
-    fun decoder(f: AudioFormatId): FrameDecoder = if (f.adpcm) AdpcmDecoder(f) else FrameDecoder { it }
+    fun encoder(f: AudioFormatId): FrameEncoder = when (f.kind) {
+        AudioFormatId.Kind.PCM -> object : FrameEncoder { override fun encode(pcm48: ByteArray) = listOf(pcm48) }
+        AudioFormatId.Kind.ADPCM -> AdpcmEncoder(f)
+        AudioFormatId.Kind.AAC -> AacEncoder(f.bitrate)
+    }
+
+    fun decoder(f: AudioFormatId): FrameDecoder = when (f.kind) {
+        AudioFormatId.Kind.PCM -> object : FrameDecoder { override fun decode(data: ByteArray) = listOf(data) }
+        AudioFormatId.Kind.ADPCM -> AdpcmDecoder(f)
+        AudioFormatId.Kind.AAC -> AacDecoder()
+    }
 }
 
 object AdpcmTables {
@@ -86,7 +114,7 @@ class AdpcmState(var pred: Int = 0, var index: Int = 0) {
 class AdpcmEncoder(private val fmt: AudioFormatId) : FrameEncoder {
     private val states = Array(fmt.channels) { AdpcmState() }
 
-    override fun encode(pcm48: ByteArray): ByteArray {
+    override fun encode(pcm48: ByteArray): List<ByteArray> {
         val bb = ByteBuffer.wrap(pcm48).order(ByteOrder.LITTLE_ENDIAN)
         val outFrames = pcm48.size / 4 / fmt.factor
         val ch = Array(fmt.channels) { IntArray(outFrames) }
@@ -119,12 +147,12 @@ class AdpcmEncoder(private val fmt: AudioFormatId) : FrameEncoder {
                 i += 2
             }
         }
-        return out
+        return listOf(out)
     }
 }
 
 class AdpcmDecoder(private val fmt: AudioFormatId) : FrameDecoder {
-    override fun decode(data: ByteArray): ByteArray {
+    override fun decode(data: ByteArray): List<ByteArray> {
         val chs = fmt.channels
         if (data.size % chs != 0 || data.size > fmt.frameBytes) throw IOException("bad ADPCM frame size ${data.size}")
         val perCh = data.size / chs
@@ -147,6 +175,6 @@ class AdpcmDecoder(private val fmt: AudioFormatId) : FrameDecoder {
         }
         val out = ByteBuffer.allocate(n * chs * 2).order(ByteOrder.LITTLE_ENDIAN)
         for (i in 0 until n) for (c in 0 until chs) out.putShort(samples[c][i].toShort())
-        return out.array()
+        return listOf(out.array())
     }
 }

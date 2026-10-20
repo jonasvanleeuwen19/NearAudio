@@ -14,6 +14,12 @@ interface Connection : Closeable {
 
     /** 0 = no timeout. */
     fun setReadTimeout(ms: Int)
+
+    /** Slow/jittery link (Bluetooth): use generous timeouts instead of declaring the peer dead. */
+    val slowLink: Boolean get() = false
+
+    /** Receiver-side link that exists before the sender speaks (USB cable): wait for Hello indefinitely. */
+    val waitForHello: Boolean get() = false
 }
 
 class SocketConnection(private val socket: Socket) : Connection {

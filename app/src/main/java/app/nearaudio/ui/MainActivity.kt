@@ -27,6 +27,9 @@ class MainActivity : ComponentActivity() {
     private val btPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         if (result.values.all { it }) engine.startDiscovery() else engine.reportError(R.string.err_bt_permission)
     }
+    private val linePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) engine.startDiscovery() else engine.reportError(R.string.err_record_denied)
+    }
     private val consent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         val data = r.data
         if (r.resultCode == RESULT_OK && data != null) {
@@ -54,6 +57,7 @@ class MainActivity : ComponentActivity() {
             onRole = engine::setRole,
             onLatency = engine::setLatency,
             onQuality = engine::setBtQuality,
+            onWiredKind = engine::setWiredKind,
         )
         setContent {
             NearAudioTheme { MainScreen(engine.state, actions) }
@@ -70,6 +74,12 @@ class MainActivity : ComponentActivity() {
         val st = engine.state.value
         if (st.discovering) {
             engine.stopDiscovery()
+            return
+        }
+        if (st.mode == app.nearaudio.session.ShareMode.WIRED && st.wiredKind == app.nearaudio.session.WiredKind.LINE &&
+            st.role == app.nearaudio.session.Role.LISTEN && !granted(Manifest.permission.RECORD_AUDIO)
+        ) {
+            linePermission.launch(Manifest.permission.RECORD_AUDIO) // recording the wired input needs the microphone permission
             return
         }
         if (st.mode != app.nearaudio.session.ShareMode.BLUETOOTH) {

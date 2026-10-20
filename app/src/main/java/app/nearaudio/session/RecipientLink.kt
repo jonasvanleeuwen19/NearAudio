@@ -1,5 +1,7 @@
 package app.nearaudio.session
 
+import app.nearaudio.audio.AudioFormatId
+import app.nearaudio.audio.FrameCodecs
 import app.nearaudio.audio.FrameEncoder
 import app.nearaudio.transport.Codec
 import app.nearaudio.transport.Connection
@@ -26,7 +28,7 @@ class StalledException : IOException("recipient too slow")
 class RecipientLink(
     private val conn: Connection,
     private val cipher: FrameCipher,
-    private val encoder: FrameEncoder = FrameEncoder { it },
+    private val encoder: FrameEncoder = FrameCodecs.encoder(AudioFormatId.PCM_48K_STEREO),
     queueFrames: Int = DEFAULT_QUEUE_FRAMES,
     private val onFirstFrameSent: () -> Unit = {},
 ) {
@@ -41,6 +43,7 @@ class RecipientLink(
     @Volatile private var writeStartedMs = 0L
 
     @Volatile private var stalled = false
+    private val stallMs = if (conn.slowLink) 15_000L else STALL_MS
     private var counter = 0L
     private var firstSent = false
 
@@ -61,7 +64,7 @@ class RecipientLink(
             while (true) {
                 delay(500)
                 val t = writeStartedMs
-                if (t != 0L && System.currentTimeMillis() - t > STALL_MS) {
+                if (t != 0L && System.currentTimeMillis() - t > stallMs) {
                     stalled = true
                     conn.close()
                 }
@@ -77,6 +80,7 @@ class RecipientLink(
         } finally {
             reader.cancel()
             watchdog.cancel()
+            encoder.close()
             conn.close() // also unblocks the reader's blocking read
         }
     }
@@ -105,11 +109,13 @@ class RecipientLink(
                 timedWrite { Codec.write(conn.output, Message.Stop) }
                 return
             }
-            timedWrite { Codec.write(conn.output, Message.Audio(counter, cipher.seal(counter, encoder.encode(frame)))) }
-            counter++
-            if (!firstSent) {
-                firstSent = true
-                onFirstFrameSent()
+            for (part in encoder.encode(frame)) {
+                timedWrite { Codec.write(conn.output, Message.Audio(counter, cipher.seal(counter, part))) }
+                counter++
+                if (!firstSent) {
+                    firstSent = true
+                    onFirstFrameSent()
+                }
             }
         }
     }

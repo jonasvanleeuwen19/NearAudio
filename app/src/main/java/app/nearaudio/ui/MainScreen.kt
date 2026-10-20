@@ -36,6 +36,7 @@ import app.nearaudio.session.LatencyMode
 import app.nearaudio.session.Recipient
 import app.nearaudio.session.Role
 import app.nearaudio.session.ShareMode
+import app.nearaudio.session.WiredKind
 import androidx.compose.material3.FilterChip
 import app.nearaudio.session.RecipientState
 import app.nearaudio.session.UiState
@@ -56,6 +57,7 @@ class Actions(
     val onRole: (Role) -> Unit,
     val onLatency: (LatencyMode) -> Unit,
     val onQuality: (AudioFormatId) -> Unit,
+    val onWiredKind: (WiredKind) -> Unit,
 )
 
 @Composable
@@ -78,7 +80,10 @@ fun MainScreen(stateFlow: StateFlow<UiState>, actions: Actions) {
 
     val bt = s.mode == ShareMode.BLUETOOTH
     val sharer = s.role == Role.SHARE
-    val locked = s.discovering || s.sharing || rcv != null
+    val wired = s.mode == ShareMode.WIRED
+    val line = wired && s.wiredKind == WiredKind.LINE
+    val usbMode = wired && !line
+    val locked = s.discovering || s.sharing || rcv != null || s.lineActive
 
     Scaffold { padding ->
         LazyColumn(
@@ -93,11 +98,18 @@ fun MainScreen(stateFlow: StateFlow<UiState>, actions: Actions) {
                     s.sharing -> stringResource(R.string.status_sharing, live)
                     rcv != null && rcv.playing -> stringResource(R.string.status_receiving, rcv.alias)
                     rcv != null -> stringResource(R.string.status_receiving_wait, rcv.alias)
+                    s.lineActive -> stringResource(R.string.status_line)
+                    s.discovering && usbMode && !sharer && s.cableLinked -> stringResource(R.string.status_cable_linked)
+                    s.discovering && usbMode && sharer && s.cableLinked -> stringResource(R.string.status_cable_linked_share)
                     s.discovering -> stringResource(R.string.status_discovering)
                     else -> stringResource(R.string.status_idle)
                 }
                 val hint = when {
                     s.sharing || rcv != null -> null
+                    line && sharer -> R.string.hint_line_share
+                    line -> R.string.hint_line_listen
+                    usbMode && sharer && !s.discovering -> R.string.hint_usb_share
+                    usbMode && !sharer -> R.string.hint_usb_listen
                     sharer && !s.discovering -> R.string.hint_share_idle
                     sharer && connected > 0 -> R.string.hint_share_ready
                     sharer && bt -> R.string.hint_share_bt
@@ -111,7 +123,7 @@ fun MainScreen(stateFlow: StateFlow<UiState>, actions: Actions) {
                         Text(status, style = MaterialTheme.typography.titleMedium)
                         hint?.let { Text(stringResource(it), style = MaterialTheme.typography.bodyMedium) }
                         Text(
-                            stringResource(if (bt) R.string.transport_info_bt else R.string.transport_info),
+                            stringResource(when { bt -> R.string.transport_info_bt; usbMode -> R.string.transport_info_usb; line -> R.string.transport_info_line; else -> R.string.transport_info }),
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -159,10 +171,20 @@ fun MainScreen(stateFlow: StateFlow<UiState>, actions: Actions) {
                     }
                     Text(stringResource(R.string.mode_title), style = MaterialTheme.typography.labelLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = !bt, enabled = !locked, onClick = { actions.onMode(ShareMode.WIFI) },
+                        FilterChip(selected = s.mode == ShareMode.WIFI, enabled = !locked, onClick = { actions.onMode(ShareMode.WIFI) },
                             label = { Text(stringResource(R.string.mode_wifi)) })
                         FilterChip(selected = bt, enabled = !locked, onClick = { actions.onMode(ShareMode.BLUETOOTH) },
                             label = { Text(stringResource(R.string.mode_bluetooth)) })
+                        FilterChip(selected = wired, enabled = !locked, onClick = { actions.onMode(ShareMode.WIRED) },
+                            label = { Text(stringResource(R.string.mode_wired)) })
+                    }
+                    if (wired) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(selected = !line, enabled = !locked, onClick = { actions.onWiredKind(WiredKind.USB) },
+                                label = { Text(stringResource(R.string.wired_usb)) })
+                            FilterChip(selected = line, enabled = !locked, onClick = { actions.onWiredKind(WiredKind.LINE) },
+                                label = { Text(stringResource(R.string.wired_line)) })
+                        }
                     }
                 }
             }
@@ -174,8 +196,10 @@ fun MainScreen(stateFlow: StateFlow<UiState>, actions: Actions) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilterChip(selected = s.btQuality == AudioFormatId.ADPCM_16K_MONO, enabled = !s.sharing,
                                 onClick = { actions.onQuality(AudioFormatId.ADPCM_16K_MONO) }, label = { Text(stringResource(R.string.quality_low)) })
-                            FilterChip(selected = s.btQuality == AudioFormatId.ADPCM_24K_STEREO, enabled = !s.sharing,
-                                onClick = { actions.onQuality(AudioFormatId.ADPCM_24K_STEREO) }, label = { Text(stringResource(R.string.quality_normal)) })
+                            FilterChip(selected = s.btQuality == AudioFormatId.AAC_STEREO_64, enabled = !s.sharing,
+                                onClick = { actions.onQuality(AudioFormatId.AAC_STEREO_64) }, label = { Text(stringResource(R.string.quality_normal)) })
+                            FilterChip(selected = s.btQuality == AudioFormatId.AAC_STEREO_96, enabled = !s.sharing,
+                                onClick = { actions.onQuality(AudioFormatId.AAC_STEREO_96) }, label = { Text(stringResource(R.string.quality_high)) })
                         }
                     }
                 }
@@ -186,12 +210,17 @@ fun MainScreen(stateFlow: StateFlow<UiState>, actions: Actions) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(stringResource(R.string.latency_title), style = MaterialTheme.typography.labelLarge)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(selected = s.latency == LatencyMode.LOW, enabled = rcv == null,
+                            FilterChip(selected = s.latency == LatencyMode.LOW, enabled = rcv == null && !s.lineActive,
                                 onClick = { actions.onLatency(LatencyMode.LOW) }, label = { Text(stringResource(R.string.latency_low)) })
-                            FilterChip(selected = s.latency == LatencyMode.BALANCED, enabled = rcv == null,
+                            FilterChip(selected = s.latency == LatencyMode.BALANCED, enabled = rcv == null && !s.lineActive,
                                 onClick = { actions.onLatency(LatencyMode.BALANCED) }, label = { Text(stringResource(R.string.latency_balanced)) })
-                            FilterChip(selected = s.latency == LatencyMode.STABLE, enabled = rcv == null,
+                            FilterChip(selected = s.latency == LatencyMode.STABLE, enabled = rcv == null && !s.lineActive,
                                 onClick = { actions.onLatency(LatencyMode.STABLE) }, label = { Text(stringResource(R.string.latency_stable)) })
+                            FilterChip(selected = s.latency == LatencyMode.SAFE, enabled = rcv == null && !s.lineActive,
+                                onClick = { actions.onLatency(LatencyMode.SAFE) }, label = { Text(stringResource(R.string.latency_safe)) })
+                        }
+                        if (s.btHeadsetWarning) {
+                            Text(stringResource(R.string.bt_headset_warning), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         }
                         Text(stringResource(R.string.latency_note), style = MaterialTheme.typography.bodySmall)
                     }
@@ -212,19 +241,24 @@ fun MainScreen(stateFlow: StateFlow<UiState>, actions: Actions) {
             item {
                 val label = when {
                     s.discovering -> R.string.discovery_stop
+                    usbMode && sharer -> R.string.discovery_usb_share
+                    usbMode -> R.string.discovery_usb_listen
+                    line -> R.string.discovery_line_listen
                     bt && sharer -> R.string.discovery_bt_share
                     bt -> R.string.discovery_bt_listen
                     sharer -> R.string.discovery_start
                     else -> R.string.discovery_listen
                 }
-                Button(
-                    onClick = actions.onToggleDiscovery,
-                    enabled = !s.sharing && rcv == null,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                ) { Text(stringResource(label)) }
+                if (!(line && sharer)) {
+                    Button(
+                        onClick = actions.onToggleDiscovery,
+                        enabled = !s.sharing && rcv == null,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    ) { Text(stringResource(label)) }
+                }
             }
 
-            if (sharer) {
+            if (sharer && !line) {
                 item { Text(stringResource(R.string.peers_title), style = MaterialTheme.typography.titleMedium) }
 
                 if (s.peers.isEmpty()) {
@@ -234,6 +268,7 @@ fun MainScreen(stateFlow: StateFlow<UiState>, actions: Actions) {
                                 when {
                                     !s.discovering -> R.string.peers_hint_off
                                     bt -> R.string.peers_empty_bt
+                                    usbMode -> R.string.peers_empty_usb
                                     else -> R.string.peers_empty
                                 },
                             ),

@@ -13,8 +13,8 @@ android {
         // 29 = first API with AudioPlaybackCaptureConfiguration (playback capture).
         minSdk = 29
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
     }
 
     buildTypes {

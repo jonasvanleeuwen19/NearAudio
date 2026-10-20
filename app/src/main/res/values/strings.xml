@@ -59,7 +59,6 @@
     <string name="notif_receiving">Receiving audio from %s</string>
     <string name="notif_stop">Stop</string>
     <string name="mode_title">Connection</string>
-    <string name="mode_wifi">Wi-Fi network</string>
     <string name="role_title">I want to</string>
     <string name="role_share">Share audio</string>
     <string name="role_listen">Listen</string>
@@ -69,7 +68,6 @@
     <string name="hint_share_ready">Step 3: tap Start sharing audio, then play something in another app.</string>
     <string name="hint_listen_idle">Tap Start listening and keep this screen open.</string>
     <string name="hint_listen_wifi">Keep this screen open. The sharing phone will connect and you confirm the code.</string>
-    <string name="mode_bluetooth">Bluetooth (offline, experimental)</string>
     <string name="transport_info_bt">Transport: Bluetooth LE, no Wi-Fi or internet needed (AES-GCM encrypted). Audio is compressed to fit Bluetooth, so quality is lower than over Wi-Fi; range and stability depend on your phones.</string>
     <string name="quality_title">Bluetooth quality</string>
     <string name="quality_low">Low (voice, mono)</string>
@@ -87,4 +85,28 @@
     <string name="err_bluetooth">Bluetooth problem (%s). Is Bluetooth on and permission granted?</string>
     <string name="err_bt_permission">Bluetooth mode needs the nearby-devices permission (location on Android 11 and older).</string>
     <string name="permission_info_bt">Bluetooth mode asks for nearby-devices permission (Android 12+) or location (Android 11 and older, required by Android for Bluetooth scanning). NearAudio never reads your location.</string>
+    <string name="mode_wifi">Wi-Fi</string>
+    <string name="mode_bluetooth">Bluetooth</string>
+    <string name="mode_wired">Wired</string>
+    <string name="wired_usb">USB cable</string>
+    <string name="wired_line">Audio input (jack/USB audio)</string>
+    <string name="quality_high">High</string>
+    <string name="latency_safe">Max</string>
+    <string name="bt_headset_warning">Bluetooth earbuds are connected to this phone. They share the radio with this link and can cause dropouts. Use Max buffer, or use Wi-Fi or Wired mode instead.</string>
+    <string name="status_line">Playing audio from the wired input</string>
+    <string name="status_cable_linked">USB cable connected – waiting for the sharing phone</string>
+    <string name="status_cable_linked_share">USB cable connected – select it below and tap Connect</string>
+    <string name="transport_info_usb">Transport: USB cable between the phones (Android Open Accessory, full quality, no radio, AES-GCM encrypted). The sharing phone must be the USB host: plug the OTG adapter or the cable end that powers the link into the SHARING phone. Accept the USB permission prompts on both phones.</string>
+    <string name="transport_info_line">Transport: analog cable. Connect the sharing phone\'s headphone output (or USB audio adapter) to the audio input of this phone (headset jack or USB audio adapter). Quality is limited by the cable and input.</string>
+    <string name="hint_usb_share">Connect the USB cable (OTG adapter on this phone), then tap Search USB device and accept the prompts.</string>
+    <string name="hint_usb_listen">Connect the USB cable, tap Wait for USB cable and accept the prompt. Then confirm the code when the sharing phone connects.</string>
+    <string name="hint_line_share">Nothing to do in the app: plug the cable into this phone\'s headphone output (or USB audio adapter), set a high volume and play audio normally. The other phone chooses Listen + Wired + Audio input.</string>
+    <string name="hint_line_listen">Connect the cable to this phone\'s headset/USB audio input and tap the button. The audio plays on your earbuds or speaker.</string>
+    <string name="discovery_usb_share">Search USB device</string>
+    <string name="discovery_usb_listen">Wait for USB cable</string>
+    <string name="discovery_line_listen">Start listening to input</string>
+    <string name="peers_empty_usb">No USB phone linked yet. Check the cable and the OTG adapter, and that the other phone chose Listen + Wired + USB cable.</string>
+    <string name="err_usb">USB problem (%s). Check the cable, OTG adapter and accept the permission prompts.</string>
+    <string name="err_line">No usable wired audio input found (%s). Connect the cable first (headset jack or USB audio adapter with input).</string>
+    <string name="notif_line">Playing audio from the wired input</string>
 </resources>

@@ -164,6 +164,12 @@ class BluetoothDiscovery(
         if (prev == null || prev.first != peer) onFound(peer)
     }
 
+    @Synchronized
+    fun stopAdvertising() {
+        advCallback?.let { cb -> runCatching { adapter?.bluetoothLeAdvertiser?.stopAdvertising(cb) } }
+        advCallback = null
+    }
+
     /** Stops the radio scan (it competes with streaming for airtime) but keeps the found peers. */
     @Synchronized
     fun stopScan() {

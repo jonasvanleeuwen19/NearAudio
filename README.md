@@ -18,15 +18,26 @@ own speakers or Bluetooth earbuds.
 * Each receiver explicitly accepts a session after comparing a 6-digit verification code, then plays
   through its normal Android audio output (incl. connected Bluetooth earbuds).
 
-## Two modes
+## Three modes
 
-* **Wi-Fi network**: both phones on the same Wi-Fi/hotspot; discovery via mDNS; 48 kHz stereo PCM
-  (works in practice, tested by the author on two phones).
-* **Bluetooth (offline, experimental)**: no Wi-Fi or internet. Listeners advertise over Bluetooth LE,
-  the sharer finds them and opens an LE L2CAP channel (no pairing). Audio is downsampled and
-  compressed with IMA ADPCM (Normal: 24 kHz stereo ~195 kbit/s, Low: 16 kHz mono ~66 kbit/s) to fit
-  Bluetooth bandwidth. **Untested on real hardware**: throughput depends heavily on the phones.
-  If it stutters, choose Low quality and the Stable buffer. (Wi-Fi Direct was tried in v0.2 and removed.)
+* **Wi-Fi**: both phones on the same Wi-Fi/hotspot; mDNS discovery; 48 kHz stereo PCM (best quality;
+  confirmed working on two phones by the author).
+* **Bluetooth (offline)**: no Wi-Fi/internet. Listeners advertise over Bluetooth LE, the sharer opens an LE
+  L2CAP channel (no pairing). Audio is compressed with AAC-LC (Normal 64 kbit/s, High 96 kbit/s stereo) via
+  the platform MediaCodec, or IMA ADPCM mono (Low, 66 kbit/s, the variant that tested smooth). Quality of
+  AAC is a big step up from ADPCM at the same bitrate. **AAC/Bluetooth changes are untested.**
+  If a listener has Bluetooth earbuds connected, the radio is shared and dropouts are likely: the app warns
+  and offers a Max buffer; Wi-Fi or Wired mode is the reliable choice for that case.
+* **Wired**:
+  * **USB cable** (digital, full quality, no radio, so Bluetooth earbuds on the listener are fine): phone-to-phone
+    via Android Open Accessory. The **sharing phone must be the USB host** (OTG adapter / the end that powers
+    the link). Sharer: Share + Wired + USB cable -> *Search USB device*. Listener: Listen + Wired + USB cable ->
+    *Wait for USB cable*. Accept the USB permission prompts, then connect and confirm the code as usual.
+  * **Audio input (jack / USB audio)**: analog. Plug the sharing phone's headphone output (or USB audio
+    adapter) into the listening phone's headset jack or USB audio adapter input; the listener records that
+    input and plays it on its earbuds/speaker. No app action is needed on the sharing phone. Needs the
+    microphone permission on the listener (Android treats wired inputs as microphone input). Quality is limited
+    by the cable; set the sharer's volume high. No encryption on an analog cable (nothing is networked).
 
 ## Smooth playback
 
@@ -63,6 +74,8 @@ locks while a session runs.
 | `INTERNET` | Local-network sockets only. No remote host is contacted. |
 | `RECORD_AUDIO` | Required by `AudioRecord` for playback capture on the sharing phone. Microphone is never used. Requested only when you start sharing. |
 | `FOREGROUND_SERVICE`, `..._MEDIA_PROJECTION`, `..._MEDIA_PLAYBACK` | Keep sharing/receiving alive with a visible notification. |
+| `RECORD_AUDIO` also on the listener | Wired audio-input mode only. |
+| `FOREGROUND_SERVICE_MICROPHONE` | Lets the wired-input listener keep recording with the screen off. |
 | `BLUETOOTH_SCAN`, `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT` (API 31+) / `ACCESS_FINE_LOCATION` (API <=30) | Bluetooth mode only; requested when you start it. Location is never read. |
 | `WAKE_LOCK` | Keep CPU/Wi-Fi awake during a session (avoids stutter with screen off). |
 | `POST_NOTIFICATIONS` (API 33+) | Show that notification. Optional; asked when you start sharing. |

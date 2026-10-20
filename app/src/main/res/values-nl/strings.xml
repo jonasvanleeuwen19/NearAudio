@@ -59,7 +59,6 @@
     <string name="notif_receiving">Audio ontvangen van %s</string>
     <string name="notif_stop">Stop</string>
     <string name="mode_title">Verbinding</string>
-    <string name="mode_wifi">Wifi-netwerk</string>
     <string name="role_title">Ik wil</string>
     <string name="role_share">Audio delen</string>
     <string name="role_listen">Luisteren</string>
@@ -69,7 +68,6 @@
     <string name="hint_share_ready">Stap 3: tik op Audio delen starten en speel iets af in een andere app.</string>
     <string name="hint_listen_idle">Tik op Luisteren starten en houd dit scherm open.</string>
     <string name="hint_listen_wifi">Houd dit scherm open. De deler verbindt met jou en jij bevestigt de code.</string>
-    <string name="mode_bluetooth">Bluetooth (offline, experimenteel)</string>
     <string name="transport_info_bt">Transport: Bluetooth LE, geen wifi of internet nodig (AES-GCM-versleuteld). Audio wordt gecomprimeerd zodat het over Bluetooth past; de kwaliteit is lager dan via wifi en bereik en stabiliteit hangen van je telefoons af.</string>
     <string name="quality_title">Bluetooth-kwaliteit</string>
     <string name="quality_low">Laag (spraak, mono)</string>
@@ -87,4 +85,28 @@
     <string name="err_bluetooth">Bluetooth-probleem (%s). Staat Bluetooth aan en is de toestemming gegeven?</string>
     <string name="err_bt_permission">Bluetooth-modus heeft de toestemming voor apparaten in de buurt nodig (locatie op Android 11 en ouder).</string>
     <string name="permission_info_bt">Bluetooth-modus vraagt toestemming voor apparaten in de buurt (Android 12+) of locatie (Android 11 en ouder, door Android vereist voor Bluetooth-scannen). NearAudio leest nooit je locatie.</string>
+    <string name="mode_wifi">Wi-Fi</string>
+    <string name="mode_bluetooth">Bluetooth</string>
+    <string name="mode_wired">Kabel</string>
+    <string name="wired_usb">USB-kabel</string>
+    <string name="wired_line">Audio-ingang (jack/USB-audio)</string>
+    <string name="quality_high">Hoog</string>
+    <string name="latency_safe">Max</string>
+    <string name="bt_headset_warning">Er zijn Bluetooth-oortjes verbonden met deze telefoon. Die delen de radio met deze verbinding en kunnen haperen veroorzaken. Gebruik de Max-buffer, of gebruik Wi-Fi of Kabel.</string>
+    <string name="status_line">Audio van de kabelingang wordt afgespeeld</string>
+    <string name="status_cable_linked">USB-kabel verbonden – wacht op de deler</string>
+    <string name="status_cable_linked_share">USB-kabel verbonden – selecteer hieronder en tik op Verbinden</string>
+    <string name="transport_info_usb">Transport: USB-kabel tussen de telefoons (Android Open Accessory, volle kwaliteit, geen radio, AES-GCM-versleuteld). De telefoon die deelt moet de USB-host zijn: steek de OTG-adapter of het kabeluiteinde dat de verbinding voedt in de DELENDE telefoon. Accepteer de USB-meldingen op beide telefoons.</string>
+    <string name="transport_info_line">Transport: analoge kabel. Verbind de koptelefoonuitgang (of USB-audio-adapter) van de delende telefoon met de audio-ingang van deze telefoon (headsetaansluiting of USB-audio-adapter). De kwaliteit hangt af van kabel en ingang.</string>
+    <string name="hint_usb_share">Sluit de USB-kabel aan (OTG-adapter op deze telefoon), tik op USB-apparaat zoeken en accepteer de meldingen.</string>
+    <string name="hint_usb_listen">Sluit de USB-kabel aan, tik op Wachten op USB-kabel en accepteer de melding. Bevestig daarna de code als de deler verbindt.</string>
+    <string name="hint_line_share">Niets te doen in de app: steek de kabel in de koptelefoonuitgang (of USB-audio-adapter) van deze telefoon, zet het volume hoog en speel gewoon audio af. De andere telefoon kiest Luisteren + Kabel + Audio-ingang.</string>
+    <string name="hint_line_listen">Verbind de kabel met de headset-/USB-audio-ingang van deze telefoon en tik op de knop. De audio speelt op je oortjes of speaker.</string>
+    <string name="discovery_usb_share">USB-apparaat zoeken</string>
+    <string name="discovery_usb_listen">Wachten op USB-kabel</string>
+    <string name="discovery_line_listen">Luisteren naar ingang starten</string>
+    <string name="peers_empty_usb">Nog geen USB-telefoon gekoppeld. Controleer de kabel en OTG-adapter, en of de andere telefoon Luisteren + Kabel + USB-kabel koos.</string>
+    <string name="err_usb">USB-probleem (%s). Controleer kabel en OTG-adapter en accepteer de toestemmingsmeldingen.</string>
+    <string name="err_line">Geen bruikbare kabelingang gevonden (%s). Sluit eerst de kabel aan (headsetaansluiting of USB-audio-adapter met ingang).</string>
+    <string name="notif_line">Audio van de kabelingang wordt afgespeeld</string>
 </resources>

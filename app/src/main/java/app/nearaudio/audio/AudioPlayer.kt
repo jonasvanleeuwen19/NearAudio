@@ -19,7 +19,12 @@ import java.util.concurrent.TimeUnit
  *  - if the queue grows past the high-water mark (burst after a stall) the oldest audio is skipped,
  *    so delay snaps back to ~target instead of staying high.
  */
-class AudioPlayer(context: Context, private val format: AudioFormatId, private val targetFrames: Int) : AudioSink {
+class AudioPlayer(
+    context: Context,
+    private val format: AudioFormatId,
+    private val targetFrames: Int,
+    private val preferredOutput: android.media.AudioDeviceInfo? = null,
+) : AudioSink {
     private val audioManager = context.getSystemService(AudioManager::class.java)
     private val highWater = targetFrames * 2 + 2
     private val queue = ArrayBlockingQueue<ByteArray>(targetFrames * 3 + 6)
@@ -60,6 +65,7 @@ class AudioPlayer(context: Context, private val format: AudioFormatId, private v
             .setBufferSizeInBytes(maxOf(min, format.frameBytes * 6))
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
+        preferredOutput?.let { t.setPreferredDevice(it) }
         track = t
         running = true
         thread = Thread({ loop(t) }, "near-audio-player").also { it.start() }

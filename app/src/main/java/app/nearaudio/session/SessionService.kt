@@ -34,6 +34,7 @@ class SessionService : Service() {
     companion object {
         private const val ACTION_SHARE = "app.nearaudio.SHARE"
         private const val ACTION_RECEIVE = "app.nearaudio.RECEIVE"
+        private const val ACTION_LINE = "app.nearaudio.LINE"
         private const val ACTION_STOP = "app.nearaudio.STOP"
         private const val EXTRA_CODE = "code"
         private const val EXTRA_DATA = "data"
@@ -44,6 +45,10 @@ class SessionService : Service() {
             val i = Intent(ctx, SessionService::class.java).setAction(ACTION_SHARE)
                 .putExtra(EXTRA_CODE, resultCode).putExtra(EXTRA_DATA, data)
             ContextCompat.startForegroundService(ctx, i)
+        }
+
+        fun startLine(ctx: Context) {
+            ContextCompat.startForegroundService(ctx, Intent(ctx, SessionService::class.java).setAction(ACTION_LINE))
         }
 
         fun startReceiving(ctx: Context) {
@@ -66,7 +71,7 @@ class SessionService : Service() {
         scope = s
         s.launch {
             engine.state.collect { st ->
-                val active = st.sharing || st.receiving != null
+                val active = st.sharing || st.receiving != null || st.lineActive
                 if (active) {
                     sawActive = true
                     getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(st))
@@ -86,6 +91,16 @@ class SessionService : Service() {
             ACTION_RECEIVE -> {
                 sawActive = false
                 enter(ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+            }
+            ACTION_LINE -> {
+                sawActive = false
+                enter(
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                    } else {
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                    },
+                )
             }
             ACTION_SHARE -> {
                 sawActive = false
@@ -133,6 +148,7 @@ class SessionService : Service() {
         val text = when {
             st.sharing -> getString(R.string.notif_sharing, st.peers.count { it.isLive })
             st.receiving != null -> getString(R.string.notif_receiving, st.receiving.alias)
+            st.lineActive -> getString(R.string.notif_line)
             else -> getString(R.string.app_name)
         }
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)

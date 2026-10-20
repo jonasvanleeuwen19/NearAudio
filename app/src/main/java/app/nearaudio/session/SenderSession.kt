@@ -161,7 +161,7 @@ class SenderSession(
         val sessionId = ByteArray(Protocol.SESSION_ID_BYTES).also { random.nextBytes(it) }
         val pair = SessionCrypto.newKeyPair()
         val pub = pair.public.encoded
-        conn.setReadTimeout(HANDSHAKE_TIMEOUT_MS)
+        conn.setReadTimeout(if (conn.slowLink) 15_000 else HANDSHAKE_TIMEOUT_MS)
         Codec.write(conn.output, Message.Hello(Protocol.VERSION, sessionId, alias().take(Protocol.MAX_ALIAS_CHARS), SessionCrypto.sha256(pub), fmt.id))
         val reply = when (val m = Codec.read(conn.input)) {
             is Message.HelloReply -> m

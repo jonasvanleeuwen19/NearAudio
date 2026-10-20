@@ -90,3 +90,19 @@ TCP send buffer could hold seconds of audio. Now: jitter buffer target 80/140/24
 underrun, skip-ahead when the queue exceeds twice the target, 32 KiB send / 64 KiB receive socket
 buffers, URGENT_AUDIO thread priority, partial wake lock and Wi-Fi low-latency lock during sessions.
 Not re-measured after these changes.
+
+## v0.4: AAC over Bluetooth, wired modes
+
+* Reported on two phones: 195 kbit/s ADPCM stereo over BLE L2CAP stuttered and disconnected; 66 kbit/s mono
+  was smooth. v0.4 replaces the stereo option with AAC-LC 64/96 kbit/s (MediaCodec, `audio/AacCodec.kt`,
+  fixed AudioSpecificConfig 0x1190 = LC/48 kHz/stereo). Encoder/decoder add ~1-2 AAC frames (~21-43 ms).
+  Encoding is per recipient. If the encoder cannot start the connection fails with an error; use Low.
+* Disconnects: stall watchdog (15 s) and stream timeout (20 s) are relaxed for Bluetooth; handshakes 15 s.
+  The receiver's advertising and the sharer's scan stop once connecting.
+* Bluetooth earbuds on the listener share the 2.4 GHz radio with the LE link; this is physical and cannot be
+  fixed in software. Mitigations: Max buffer (~0.5 s), lower bitrate. Use Wi-Fi or USB for such listeners.
+* USB (AOA): host sends control requests 51/52/53, re-enumeration as 18D1:2D00/2D01, bulk endpoints.
+  Transfers that are an exact multiple of the packet size are split in two to force a short packet.
+  Needs OTG-capable host; some phones/cables/charging-role combinations will not work. **Untested.**
+* Line input: `AudioRecord` on a wired input device (UNPROCESSED source if available), played to Bluetooth or
+  the speaker, never back to the wired output. Analog level may be low/mono. **Untested.**

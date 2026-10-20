@@ -35,8 +35,11 @@ class ReceiverSession(
      * [sink] is always stopped before returning.
      */
     fun handle(conn: Connection, decide: (IncomingRequest) -> Boolean, onPlaying: (Boolean) -> Unit) {
-        conn.setReadTimeout(HANDSHAKE_TIMEOUT_MS)
+        val handshakeMs = if (conn.slowLink) 15_000 else HANDSHAKE_TIMEOUT_MS
+        // A USB cable is linked before the sender starts talking, so the first message may take a while.
+        conn.setReadTimeout(if (conn.waitForHello) 0 else handshakeMs)
         val hello = Codec.read(conn.input) as? Message.Hello ?: throw ProtocolException("expected hello")
+        conn.setReadTimeout(handshakeMs)
         if (hello.version != Protocol.VERSION) {
             Codec.write(conn.output, Message.Reject(RejectReason.UNSUPPORTED_VERSION))
             throw ProtocolException("unsupported version ${hello.version}")
@@ -60,7 +63,7 @@ class ReceiverSession(
             return
         }
         Codec.write(conn.output, Message.Accept(keys.acceptTag))
-        conn.setReadTimeout(STREAM_TIMEOUT_MS)
+        conn.setReadTimeout(if (conn.slowLink) 20_000 else STREAM_TIMEOUT_MS)
         onPlaying(false)
 
         val cipher = FrameCipher(keys.key, hello.sessionId)
@@ -75,15 +78,16 @@ class ReceiverSession(
                     is Message.Audio -> {
                         val plain = cipher.open(m.counter, m.ciphertext)
                         if (!guard.accept(m.counter)) continue
-                        val pcm = decoder.decode(plain)
-                        if (pcm.isEmpty() || pcm.size > format.frameBytes || pcm.size % (2 * format.channels) != 0) {
-                            throw ProtocolException("bad audio frame size ${pcm.size}")
+                        for (pcm in decoder.decode(plain)) {
+                            if (pcm.isEmpty() || pcm.size > format.maxPcmBytes || pcm.size % (2 * format.channels) != 0) {
+                                throw ProtocolException("bad audio frame size ${pcm.size}")
+                            }
+                            if (!playing) {
+                                playing = true
+                                onPlaying(true)
+                            }
+                            sink.play(pcm)
                         }
-                        if (!playing) {
-                            playing = true
-                            onPlaying(true)
-                        }
-                        sink.play(pcm)
                     }
                     is Message.Ping -> Unit
                     is Message.Stop -> return
@@ -91,6 +95,7 @@ class ReceiverSession(
                 }
             }
         } finally {
+            decoder.close()
             sink.stop()
         }
     }

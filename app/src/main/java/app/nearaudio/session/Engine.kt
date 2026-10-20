@@ -8,7 +8,9 @@ import app.nearaudio.audio.AudioPlayer
 import app.nearaudio.audio.PlaybackCaptureSource
 import app.nearaudio.discovery.Peer
 import app.nearaudio.discovery.PeerDiscovery
+import app.nearaudio.audio.LineInRelay
 import app.nearaudio.discovery.BluetoothDiscovery
+import app.nearaudio.discovery.UsbLink
 import app.nearaudio.audio.AudioFormatId
 import app.nearaudio.transport.Connector
 import app.nearaudio.transport.Codec
@@ -50,7 +52,11 @@ class Engine(private val app: Application) {
     private val sender = SenderSession(
         scope, table,
         Connector { h, p, t ->
-            if (_state.value.mode == ShareMode.BLUETOOTH) bluetooth.connector.connect(h, p, t) else TcpConnector.connect(h, p, t)
+            when (_state.value.mode) {
+                ShareMode.BLUETOOTH -> bluetooth.connector.connect(h, p, t)
+                ShareMode.WIRED -> usb.connector.connect(h, p, t)
+                ShareMode.WIFI -> TcpConnector.connect(h, p, t)
+            }
         },
         { _state.value.alias },
         format = { if (_state.value.mode == ShareMode.BLUETOOTH) _state.value.btQuality else AudioFormatId.PCM_48K_STEREO },
@@ -88,6 +94,19 @@ class Engine(private val app: Application) {
         onError = { code -> setError(R.string.err_bluetooth, code) },
     )
 
+    private val usb = UsbLink(
+        app, scope,
+        onIncoming = ::onIncoming,
+        onHostReady = { p ->
+            peers[p.id] = p
+            table.peerSeen(p.id, p.alias)
+        },
+        onLinked = { linked -> _state.update { it.copy(cableLinked = linked) } },
+        onError = { code -> setError(R.string.err_usb, code) },
+    )
+
+    @Volatile private var line: LineInRelay? = null
+
     private val incomingActive = AtomicBoolean(false)
 
     @Volatile private var pendingDecision: CompletableFuture<Boolean>? = null
@@ -118,12 +137,16 @@ class Engine(private val app: Application) {
 
     // --- discovery ---
 
-    private fun locked() = _state.value.discovering || _state.value.sharing || _state.value.receiving != null
+    private fun locked() = _state.value.discovering || _state.value.sharing || _state.value.receiving != null || _state.value.lineActive
 
     fun setMode(m: ShareMode) {
         if (locked()) return
         // Bluetooth adds delay and jitter of its own, so default to the most stable buffer there.
         _state.update { it.copy(mode = m, latency = if (m == ShareMode.BLUETOOTH) LatencyMode.STABLE else LatencyMode.BALANCED) }
+    }
+
+    fun setWiredKind(k: WiredKind) {
+        if (!locked()) _state.update { it.copy(wiredKind = k) }
     }
 
     fun setRole(r: Role) {
@@ -144,10 +167,13 @@ class Engine(private val app: Application) {
         try {
             when {
                 s.mode == ShareMode.WIFI -> discovery.start(s.alias, listener.start())
+                s.mode == ShareMode.WIRED && s.wiredKind == WiredKind.LINE ->
+                    if (s.role == Role.LISTEN) { if (!startLineIn()) return } else return // sharing over a plain cable needs no app
+                s.mode == ShareMode.WIRED -> if (s.role == Role.SHARE) usb.startHost() else usb.startAccessory()
                 s.role == Role.SHARE -> if (!bluetooth.startScanning()) { bluetooth.stop(); return }
                 else -> if (!bluetooth.startListening(s.alias)) { bluetooth.stop(); return }
             }
-            _state.update { it.copy(discovering = true, error = null) }
+            _state.update { it.copy(discovering = true, error = null, btHeadsetWarning = s.mode == ShareMode.BLUETOOTH && s.role == Role.LISTEN && bluetoothHeadsetActive()) }
         } catch (e: IOException) {
             discovery.stop(); bluetooth.stop(); listener.stop()
             setError(R.string.err_listen, e.message)
@@ -157,20 +183,42 @@ class Engine(private val app: Application) {
         }
     }
 
+    private fun bluetoothHeadsetActive(): Boolean =
+        app.getSystemService(android.media.AudioManager::class.java)
+            .getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+            .any { it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it.type == 26 }
+
+    /** Wired input listening (jack / USB audio). RECORD_AUDIO must already be granted. */
+    fun startLineIn(): Boolean {
+        val r = LineInRelay(app, _state.value.latency.frames)
+        val err = r.start()
+        if (err != null) {
+            setError(R.string.err_line, err)
+            return false
+        }
+        line = r
+        _state.update { it.copy(discovering = true, lineActive = true, error = null) }
+        SessionService.startLine(app)
+        return true
+    }
+
     fun stopDiscovery() {
         if (!_state.value.discovering) return
+        line?.stop()
+        line = null
+        usb.stop()
         discovery.stop()
         bluetooth.stop()
         listener.stop()
         table.dropUnconnected()
         peers.keys.retainAll(table.snapshot().map { it.peerId }.toSet())
-        _state.update { it.copy(discovering = false) }
+        _state.update { it.copy(discovering = false, lineActive = false, cableLinked = false, btHeadsetWarning = false) }
     }
 
     /** Called when the UI leaves the foreground: listening for strangers stops unless a session is running. */
     fun onUiBackgrounded() {
         val s = _state.value
-        if (!s.sharing && s.receiving == null) {
+        if (!s.sharing && s.receiving == null && !s.lineActive) {
             pendingDecision?.complete(false)
             stopDiscovery()
         }
@@ -236,6 +284,7 @@ class Engine(private val app: Application) {
     }
 
     private fun onIncoming(conn: Connection) {
+        if (_state.value.mode == ShareMode.BLUETOOTH) bluetooth.stopAdvertising() // free airtime for the stream
         val busy = _state.value.sharing || table.snapshot().any { it.isLive }
         if (busy || !incomingActive.compareAndSet(false, true)) {
             scope.launch(Dispatchers.IO) {
